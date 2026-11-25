@@ -122,29 +122,26 @@ def build_omr_table_xml(
     max_seat: int = 30,
 ) -> str:
     """Pure B&W OMR bubble strip (no shading, crisp black lines, 4 corner fiducials).
-    Seat layout adapts to max_seat (default 30 -> 01~30):
-      - max_seat <= 39: 1 vertical col for 十位 (⓪..③) + 5 cols x 2 merged rows for 個位 (⓪~④, ⑤~⑨)
-      - 40 <= max_seat <= 49: 1 label col + 5 digit cols; 十位 merged rows 1-2 (⓪~④), 個位 rows 3-4
-      - max_seat >= 50: 1 label col + 5 digit cols; 十位 rows 1-2 (⓪~⑨), 個位 rows 3-4 (⓪~⑨)
+    Seat layout adapts to max_seat (default 30 -> 01~30) using a unified 6-col structure (1 label + 5 digits):
+      - max_seat <= 49 (default 30):
+          十位 (rows 1-2 merged): 橫向由左至右 ⓪ ① ② ③ 空格 (for <=39) 或 ⓪ ① ② ③ ④ (for 40~49)
+          個位 (rows 3-4):        第 3 列 ⓪ ① ② ③ ④、第 4 列 ⑤ ⑥ ⑦ ⑧ ⑨
+      - max_seat >= 50:
+          十位 (rows 1-2):        第 1 列 ⓪ ① ② ③ ④、第 2 列 ⑤ ⑥ ⑦ ⑧ ⑨
+          個位 (rows 3-4):        第 3 列 ⓪ ① ② ③ ④、第 4 列 ⑤ ⑥ ⑦ ⑧ ⑨
     """
     fid_w = 240
     gap_w = 110
 
     col_widths = [fid_w, gap_w]
+    seat_label_w = 360
+    seat_digit_w = 350
     seat_gap_w = 140
-    seat_mode = "compact30" if max_seat <= 39 else ("mid49" if max_seat <= 49 else "full99")
+    single_row_tens = max_seat <= 49
 
     if include_seat:
-        if seat_mode == "compact30":
-            tens_col_w = 400
-            ones_digit_w = 340
-            col_widths.extend([tens_col_w] + [ones_digit_w] * 5 + [seat_gap_w])
-            used = fid_w * 2 + gap_w * 2 + tens_col_w + ones_digit_w * 5 + seat_gap_w
-        else:
-            seat_label_w = 360
-            seat_digit_w = 350
-            col_widths.extend([seat_label_w] + [seat_digit_w] * 5 + [seat_gap_w])
-            used = fid_w * 2 + gap_w * 2 + seat_label_w + seat_digit_w * 5 + seat_gap_w
+        col_widths.extend([seat_label_w] + [seat_digit_w] * 5 + [seat_gap_w])
+        used = fid_w * 2 + gap_w * 2 + seat_label_w + seat_digit_w * 5 + seat_gap_w
     else:
         tag_w = 600
         col_widths.extend([tag_w, seat_gap_w])
@@ -183,123 +180,58 @@ def build_omr_table_xml(
         cells.append(cell_xml("", gap_w, borders=NO_BORDERS, pad_lr=0, pad_tb=0))
 
         if include_seat:
-            if seat_mode == "compact30":
-                if is_header:
-                    tb = dict(GRID_HEADER_BORDERS)
-                    tb["left"] = ("single", 10, "000000")
-                    tb["right"] = ("single", 8, "000000")
-                    cells.append(cell_xml("十位", tens_col_w, bold=True, sz=15, borders=tb, pad_lr=10))
-                    ob = dict(GRID_HEADER_BORDERS)
-                    ob["left"] = ("single", 8, "000000")
-                    ob["right"] = ("single", 10, "000000")
-                    cells.append(
-                        cell_xml(
-                            f"座號個位 ({seat_range_str})",
-                            ones_digit_w * 5,
-                            bold=True,
-                            sz=15,
-                            borders=ob,
-                            grid_span=5,
-                        )
+            if is_header:
+                b = dict(GRID_HEADER_BORDERS)
+                b["left"] = ("single", 10, "000000")
+                b["right"] = ("single", 10, "000000")
+                cells.append(
+                    cell_xml(
+                        f"座號畫卡 ({seat_range_str})",
+                        seat_label_w + seat_digit_w * 5,
+                        bold=True,
+                        sz=16,
+                        borders=b,
+                        grid_span=6,
                     )
-                else:
-                    # Tens col: ⓪, ①, ②, ③ vertically (r_idx 1..4 -> digit 0..3)
-                    t_digit_idx = r_idx - 1
-                    t_ch = digits_top[t_digit_idx] if t_digit_idx <= max_tens else ""
-                    tb = dict(GRID_BOTTOM_BORDERS if is_bottom else GRID_BORDERS)
-                    tb["left"] = ("single", 10, "000000")
-                    tb["right"] = ("single", 8, "000000")
-                    cells.append(
-                        cell_xml(t_ch, tens_col_w, sz=24, font="Segoe UI Symbol", borders=tb, pad_lr=0, pad_tb=0)
-                    )
-                    # Ones cols: merged rows 1-2 for ⓪~④, merged rows 3-4 for ⑤~⑨
-                    for di in range(5):
-                        ob = dict(GRID_BORDERS)
-                        if di == 0:
-                            ob["left"] = ("single", 8, "000000")
-                        if di == 4:
-                            ob["right"] = ("single", 10, "000000")
-                        if r_idx == 1:
-                            cells.append(
-                                cell_xml(
-                                    digits_top[di],
-                                    ones_digit_w,
-                                    sz=24,
-                                    font="Segoe UI Symbol",
-                                    borders=ob,
-                                    v_merge="restart",
-                                    pad_lr=0,
-                                    pad_tb=0,
-                                )
-                            )
-                        elif r_idx == 2:
-                            ob["bottom"] = ("single", 6, "000000")
-                            cells.append(cell_xml("", ones_digit_w, borders=ob, v_merge="continue", pad_lr=0, pad_tb=0))
-                        elif r_idx == 3:
-                            cells.append(
-                                cell_xml(
-                                    digits_bot[di],
-                                    ones_digit_w,
-                                    sz=24,
-                                    font="Segoe UI Symbol",
-                                    borders=ob,
-                                    v_merge="restart",
-                                    pad_lr=0,
-                                    pad_tb=0,
-                                )
-                            )
-                        else:  # r_idx == 4
-                            ob["bottom"] = ("single", 10, "000000")
-                            cells.append(cell_xml("", ones_digit_w, borders=ob, v_merge="continue", pad_lr=0, pad_tb=0))
+                )
             else:
-                if is_header:
-                    b = dict(GRID_HEADER_BORDERS)
-                    b["left"] = ("single", 10, "000000")
-                    b["right"] = ("single", 10, "000000")
-                    cells.append(
-                        cell_xml(
-                            f"座號畫卡 ({seat_range_str})",
-                            seat_label_w + seat_digit_w * 5,
-                            bold=True,
-                            sz=16,
-                            borders=b,
-                            grid_span=6,
-                        )
-                    )
-                else:
-                    lb = dict(GRID_BORDERS)
-                    lb["left"] = ("single", 10, "000000")
-                    if r_idx == 1:
-                        cells.append(cell_xml("十位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
-                    elif r_idx == 2:
-                        lb["bottom"] = ("single", 10, "000000")
-                        cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
-                    elif r_idx == 3:
-                        cells.append(cell_xml("個位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
-                    elif r_idx == 4:
-                        lb["bottom"] = ("single", 10, "000000")
-                        cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
+                lb = dict(GRID_BORDERS)
+                lb["left"] = ("single", 10, "000000")
+                if r_idx == 1:
+                    cells.append(cell_xml("十位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
+                elif r_idx == 2:
+                    lb["bottom"] = ("single", 10, "000000")
+                    cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
+                elif r_idx == 3:
+                    cells.append(cell_xml("個位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
+                elif r_idx == 4:
+                    lb["bottom"] = ("single", 10, "000000")
+                    cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
 
-                    if seat_mode == "mid49" and r_idx in (1, 2):
-                        for di, dch in enumerate(digits_top):
-                            db = dict(GRID_BOTTOM_BORDERS if r_idx == 2 else GRID_BORDERS)
-                            if di == 4:
-                                db["right"] = ("single", 10, "000000")
-                            if r_idx == 1:
-                                cells.append(
-                                    cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, v_merge="restart", pad_lr=0, pad_tb=0)
-                                )
-                            else:
-                                cells.append(cell_xml("", seat_digit_w, borders=db, v_merge="continue", pad_lr=0, pad_tb=0))
-                    else:
-                        digs = digits_top if r_idx in (1, 3) else digits_bot
-                        for di, dch in enumerate(digs):
-                            db = dict(GRID_BOTTOM_BORDERS if r_idx in (2, 4) else GRID_BORDERS)
-                            if di == 4:
-                                db["right"] = ("single", 10, "000000")
+                if single_row_tens and r_idx in (1, 2):
+                    # Horizontal tens row (merged rows 1-2): ⓪ ① ② ③ (blank) for <=39, or ⓪ ① ② ③ ④ for 40~49
+                    for di in range(5):
+                        db = dict(GRID_BOTTOM_BORDERS if r_idx == 2 else GRID_BORDERS)
+                        if di == 4:
+                            db["right"] = ("single", 10, "000000")
+                        if r_idx == 1:
+                            dch = digits_top[di] if di <= max_tens else ""
                             cells.append(
-                                cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, pad_lr=0, pad_tb=0)
+                                cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, v_merge="restart", pad_lr=0, pad_tb=0)
                             )
+                        else:
+                            cells.append(
+                                cell_xml("", seat_digit_w, borders=db, v_merge="continue", pad_lr=0, pad_tb=0)
+                            )
+                else:
+                    digs = digits_top if r_idx in (1, 3) else digits_bot
+                    for di, dch in enumerate(digs):
+                        db = dict(GRID_BOTTOM_BORDERS if r_idx in (2, 4) else GRID_BORDERS)
+                        if di == 4:
+                            db["right"] = ("single", 10, "000000")
+                        cells.append(
+                            cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, pad_lr=0, pad_tb=0)
+                        )
             cells.append(cell_xml("", seat_gap_w, borders=NO_BORDERS, pad_lr=0, pad_tb=0))
         else:
             tag_w = 600
