@@ -293,7 +293,7 @@ def build_page1_header_xml(title: str, grade: str, q_labels: list[str], total_w:
         '<w:r><w:rPr><w:rFonts w:ascii="微軟正黑體" w:eastAsia="微軟正黑體" w:hAnsi="微軟正黑體"/><w:b/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>'
         f'<w:t xml:space="preserve">{title}{grade_part}　座號：______　姓名：____________</w:t></w:r>'
         '<w:r><w:rPr><w:rFonts w:ascii="微軟正黑體" w:eastAsia="微軟正黑體" w:hAnsi="微軟正黑體"/><w:sz w:val="17"/><w:szCs w:val="17"/></w:rPr>'
-        '<w:t xml:space="preserve">　　【第 1 面畫卡區：請用鉛筆、黑筆或藍筆將座號與選項圓圈塗滿】</w:t></w:r>'
+        '<w:t xml:space="preserve">　　【第 1 面畫卡區：請用 2B 鉛筆、黑筆或藍筆將座號與選項圓圈塗滿】</w:t></w:r>'
         '</w:p>'
     )
     tbl_xml = build_omr_table_xml(1, q_labels, include_seat=True, total_w=total_w, max_seat=max_seat)
@@ -326,7 +326,7 @@ def build_page2_footer_xml(q_labels: list[str], total_w: int, note: str = "") ->
         '<w:r><w:rPr><w:rFonts w:ascii="微軟正黑體" w:eastAsia="微軟正黑體" w:hAnsi="微軟正黑體"/><w:b/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>'
         '<w:t xml:space="preserve">【第 2 面畫卡區】</w:t></w:r>'
         '<w:r><w:rPr><w:rFonts w:ascii="微軟正黑體" w:eastAsia="微軟正黑體" w:hAnsi="微軟正黑體"/><w:sz w:val="17"/><w:szCs w:val="17"/></w:rPr>'
-        f'<w:t xml:space="preserve">請核對題號，用鉛筆、黑筆或藍筆將選項圓圈塗滿{note_txt}</w:t></w:r>'
+        f'<w:t xml:space="preserve">請核對題號，用 2B 鉛筆、黑筆或藍筆將選項圓圈塗滿{note_txt}</w:t></w:r>'
         '</w:p>'
     )
     tbl_xml = build_omr_table_xml(2, q_labels, include_seat=False, total_w=total_w)
