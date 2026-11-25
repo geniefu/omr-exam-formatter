@@ -114,19 +114,37 @@ def cell_xml(
     return f'<w:tc><w:tcPr>{"".join(tcPr)}</w:tcPr>{p_xml}</w:tc>'
 
 
-def build_omr_table_xml(page_num: int, q_labels: list[str], include_seat: bool, total_w: int) -> str:
-    """Pure B&W OMR bubble strip (no shading, crisp black lines, 4 corner fiducials)."""
+def build_omr_table_xml(
+    page_num: int,
+    q_labels: list[str],
+    include_seat: bool,
+    total_w: int,
+    max_seat: int = 30,
+) -> str:
+    """Pure B&W OMR bubble strip (no shading, crisp black lines, 4 corner fiducials).
+    Seat layout adapts to max_seat (default 30 -> 01~30):
+      - max_seat <= 39: 1 vertical col for 十位 (⓪..③) + 5 cols x 2 merged rows for 個位 (⓪~④, ⑤~⑨)
+      - 40 <= max_seat <= 49: 1 label col + 5 digit cols; 十位 merged rows 1-2 (⓪~④), 個位 rows 3-4
+      - max_seat >= 50: 1 label col + 5 digit cols; 十位 rows 1-2 (⓪~⑨), 個位 rows 3-4 (⓪~⑨)
+    """
     fid_w = 240
     gap_w = 110
 
     col_widths = [fid_w, gap_w]
-    seat_label_w = 360
-    seat_digit_w = 350
     seat_gap_w = 140
+    seat_mode = "compact30" if max_seat <= 39 else ("mid49" if max_seat <= 49 else "full99")
 
     if include_seat:
-        col_widths.extend([seat_label_w] + [seat_digit_w] * 5 + [seat_gap_w])
-        used = fid_w * 2 + gap_w * 2 + seat_label_w + seat_digit_w * 5 + seat_gap_w
+        if seat_mode == "compact30":
+            tens_col_w = 400
+            ones_digit_w = 340
+            col_widths.extend([tens_col_w] + [ones_digit_w] * 5 + [seat_gap_w])
+            used = fid_w * 2 + gap_w * 2 + tens_col_w + ones_digit_w * 5 + seat_gap_w
+        else:
+            seat_label_w = 360
+            seat_digit_w = 350
+            col_widths.extend([seat_label_w] + [seat_digit_w] * 5 + [seat_gap_w])
+            used = fid_w * 2 + gap_w * 2 + seat_label_w + seat_digit_w * 5 + seat_gap_w
     else:
         tag_w = 600
         col_widths.extend([tag_w, seat_gap_w])
@@ -145,6 +163,8 @@ def build_omr_table_xml(page_num: int, q_labels: list[str], include_seat: bool, 
     bubbles = ["Ⓐ", "Ⓑ", "Ⓒ", "Ⓓ"]
     digits_top = ["⓪", "①", "②", "③", "④"]
     digits_bot = ["⑤", "⑥", "⑦", "⑧", "⑨"]
+    max_tens = min(9, max_seat // 10)
+    seat_range_str = f"01~{max_seat:02d}"
 
     rows_xml = []
     for r_idx in range(5):
@@ -163,42 +183,123 @@ def build_omr_table_xml(page_num: int, q_labels: list[str], include_seat: bool, 
         cells.append(cell_xml("", gap_w, borders=NO_BORDERS, pad_lr=0, pad_tb=0))
 
         if include_seat:
-            if is_header:
-                b = dict(GRID_HEADER_BORDERS)
-                b["left"] = ("single", 10, "000000")
-                b["right"] = ("single", 10, "000000")
-                cells.append(
-                    cell_xml(
-                        "座號畫卡 (01~99)",
-                        seat_label_w + seat_digit_w * 5,
-                        bold=True,
-                        sz=16,
-                        borders=b,
-                        grid_span=6,
-                    )
-                )
-            else:
-                lb = dict(GRID_BORDERS)
-                lb["left"] = ("single", 10, "000000")
-                if r_idx == 1:
-                    cells.append(cell_xml("十位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
-                elif r_idx == 2:
-                    lb["bottom"] = ("single", 10, "000000")
-                    cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
-                elif r_idx == 3:
-                    cells.append(cell_xml("個位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
-                elif r_idx == 4:
-                    lb["bottom"] = ("single", 10, "000000")
-                    cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
-
-                digs = digits_top if r_idx in (1, 3) else digits_bot
-                for di, dch in enumerate(digs):
-                    db = dict(GRID_BOTTOM_BORDERS if r_idx in (2, 4) else GRID_BORDERS)
-                    if di == 4:
-                        db["right"] = ("single", 10, "000000")
+            if seat_mode == "compact30":
+                if is_header:
+                    tb = dict(GRID_HEADER_BORDERS)
+                    tb["left"] = ("single", 10, "000000")
+                    tb["right"] = ("single", 8, "000000")
+                    cells.append(cell_xml("十位", tens_col_w, bold=True, sz=15, borders=tb, pad_lr=10))
+                    ob = dict(GRID_HEADER_BORDERS)
+                    ob["left"] = ("single", 8, "000000")
+                    ob["right"] = ("single", 10, "000000")
                     cells.append(
-                        cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, pad_lr=0, pad_tb=0)
+                        cell_xml(
+                            f"座號個位 ({seat_range_str})",
+                            ones_digit_w * 5,
+                            bold=True,
+                            sz=15,
+                            borders=ob,
+                            grid_span=5,
+                        )
                     )
+                else:
+                    # Tens col: ⓪, ①, ②, ③ vertically (r_idx 1..4 -> digit 0..3)
+                    t_digit_idx = r_idx - 1
+                    t_ch = digits_top[t_digit_idx] if t_digit_idx <= max_tens else ""
+                    tb = dict(GRID_BOTTOM_BORDERS if is_bottom else GRID_BORDERS)
+                    tb["left"] = ("single", 10, "000000")
+                    tb["right"] = ("single", 8, "000000")
+                    cells.append(
+                        cell_xml(t_ch, tens_col_w, sz=24, font="Segoe UI Symbol", borders=tb, pad_lr=0, pad_tb=0)
+                    )
+                    # Ones cols: merged rows 1-2 for ⓪~④, merged rows 3-4 for ⑤~⑨
+                    for di in range(5):
+                        ob = dict(GRID_BORDERS)
+                        if di == 0:
+                            ob["left"] = ("single", 8, "000000")
+                        if di == 4:
+                            ob["right"] = ("single", 10, "000000")
+                        if r_idx == 1:
+                            cells.append(
+                                cell_xml(
+                                    digits_top[di],
+                                    ones_digit_w,
+                                    sz=24,
+                                    font="Segoe UI Symbol",
+                                    borders=ob,
+                                    v_merge="restart",
+                                    pad_lr=0,
+                                    pad_tb=0,
+                                )
+                            )
+                        elif r_idx == 2:
+                            ob["bottom"] = ("single", 6, "000000")
+                            cells.append(cell_xml("", ones_digit_w, borders=ob, v_merge="continue", pad_lr=0, pad_tb=0))
+                        elif r_idx == 3:
+                            cells.append(
+                                cell_xml(
+                                    digits_bot[di],
+                                    ones_digit_w,
+                                    sz=24,
+                                    font="Segoe UI Symbol",
+                                    borders=ob,
+                                    v_merge="restart",
+                                    pad_lr=0,
+                                    pad_tb=0,
+                                )
+                            )
+                        else:  # r_idx == 4
+                            ob["bottom"] = ("single", 10, "000000")
+                            cells.append(cell_xml("", ones_digit_w, borders=ob, v_merge="continue", pad_lr=0, pad_tb=0))
+            else:
+                if is_header:
+                    b = dict(GRID_HEADER_BORDERS)
+                    b["left"] = ("single", 10, "000000")
+                    b["right"] = ("single", 10, "000000")
+                    cells.append(
+                        cell_xml(
+                            f"座號畫卡 ({seat_range_str})",
+                            seat_label_w + seat_digit_w * 5,
+                            bold=True,
+                            sz=16,
+                            borders=b,
+                            grid_span=6,
+                        )
+                    )
+                else:
+                    lb = dict(GRID_BORDERS)
+                    lb["left"] = ("single", 10, "000000")
+                    if r_idx == 1:
+                        cells.append(cell_xml("十位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
+                    elif r_idx == 2:
+                        lb["bottom"] = ("single", 10, "000000")
+                        cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
+                    elif r_idx == 3:
+                        cells.append(cell_xml("個位", seat_label_w, bold=True, sz=15, borders=lb, v_merge="restart"))
+                    elif r_idx == 4:
+                        lb["bottom"] = ("single", 10, "000000")
+                        cells.append(cell_xml("", seat_label_w, borders=lb, v_merge="continue"))
+
+                    if seat_mode == "mid49" and r_idx in (1, 2):
+                        for di, dch in enumerate(digits_top):
+                            db = dict(GRID_BOTTOM_BORDERS if r_idx == 2 else GRID_BORDERS)
+                            if di == 4:
+                                db["right"] = ("single", 10, "000000")
+                            if r_idx == 1:
+                                cells.append(
+                                    cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, v_merge="restart", pad_lr=0, pad_tb=0)
+                                )
+                            else:
+                                cells.append(cell_xml("", seat_digit_w, borders=db, v_merge="continue", pad_lr=0, pad_tb=0))
+                    else:
+                        digs = digits_top if r_idx in (1, 3) else digits_bot
+                        for di, dch in enumerate(digs):
+                            db = dict(GRID_BOTTOM_BORDERS if r_idx in (2, 4) else GRID_BORDERS)
+                            if di == 4:
+                                db["right"] = ("single", 10, "000000")
+                            cells.append(
+                                cell_xml(dch, seat_digit_w, sz=24, font="Segoe UI Symbol", borders=db, pad_lr=0, pad_tb=0)
+                            )
             cells.append(cell_xml("", seat_gap_w, borders=NO_BORDERS, pad_lr=0, pad_tb=0))
         else:
             tag_w = 600
@@ -252,7 +353,7 @@ def build_omr_table_xml(page_num: int, q_labels: list[str], include_seat: bool, 
     )
 
 
-def build_page1_header_xml(title: str, grade: str, q_labels: list[str], total_w: int) -> str:
+def build_page1_header_xml(title: str, grade: str, q_labels: list[str], total_w: int, max_seat: int = 30) -> str:
     grade_part = f"　　{grade} 年 ______ 班" if grade else "　　____ 年 ______ 班"
     info_p = (
         '<w:p>'
@@ -263,7 +364,7 @@ def build_page1_header_xml(title: str, grade: str, q_labels: list[str], total_w:
         '<w:t xml:space="preserve">　　【第 1 面畫卡區：請用鉛筆、黑筆或藍筆將座號與選項圓圈塗滿】</w:t></w:r>'
         '</w:p>'
     )
-    tbl_xml = build_omr_table_xml(1, q_labels, include_seat=True, total_w=total_w)
+    tbl_xml = build_omr_table_xml(1, q_labels, include_seat=True, total_w=total_w, max_seat=max_seat)
     spacer_p = (
         '<w:p><w:pPr>'
         '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="000000"/></w:pBdr>'
@@ -366,6 +467,7 @@ def convert_exam(
     p1_end: int,
     mc_count: int,
     total_q: int,
+    max_seat: int = 30,
     break_para_id: str | None = None,
     mc_left_ind: int = 420,
     sub_left_ind: int = 780,
@@ -496,7 +598,7 @@ def convert_exam(
         p2_labels = [str(i) for i in range(p1_end + 1, total_q + 1)]
         note = f"{p1_end+1}～{mc_count} 為選擇題，{mc_count+1}～{total_q} 為題組" if p1_end < mc_count < total_q else ""
 
-        hdr1_xml = build_page1_header_xml(title, grade, p1_labels, total_w)
+        hdr1_xml = build_page1_header_xml(title, grade, p1_labels, total_w, max_seat=max_seat)
         hdr2_empty_xml = build_page2_empty_header_xml()
         ftr_xml = build_page2_footer_xml(p2_labels, total_w, note=note)
 
@@ -535,6 +637,7 @@ def main() -> None:
     ap.add_argument("--mc-count", type=int, default=20, help="Number of multiple-choice questions before groups.")
     ap.add_argument("--total", type=int, default=0, help="Total question count (0 = auto-detect).")
     ap.add_argument("--p1-end", type=int, default=18, help="Last question number on Page 1.")
+    ap.add_argument("--max-seat", type=int, default=30, help="Maximum seat number (default: 30 -> 01~30).")
     ap.add_argument("--break-para-id", default=None, help="Optional w14:paraId to insert pageBreakBefore.")
     ap.add_argument("--export-pdf", action="store_true", help="Export companion PDF via Word COM.")
     args = ap.parse_args()
@@ -553,6 +656,7 @@ def main() -> None:
         p1_end=args.p1_end,
         mc_count=args.mc_count,
         total_q=args.total,
+        max_seat=args.max_seat,
         break_para_id=args.break_para_id,
         export_pdf=args.export_pdf,
     )
