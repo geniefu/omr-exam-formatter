@@ -465,12 +465,18 @@ def convert_exam(
             + single_run_pre + r'\d+</w:t></w:r>'
             + single_run_pre + r'\)([^<]*)</w:t></w:r>'
         )
+        pat_4 = (
+            first_run_open
+            + single_run_pre + r'\u3000\u3000</w:t></w:r>'
+            + single_run_pre + r'\)\s*</w:t></w:r>'
+            + single_run_pre + r'\(\d+\)([^<]*)</w:t></w:r>'
+        )
         pat_3 = (
             first_run_open
             + single_run_pre + r'\u3000\u3000</w:t></w:r>'
             + single_run_pre + r'\)\s*\(\d+\)([^<]*)</w:t></w:r>'
         )
-        combined = re.compile(f"(?:{pat_5})|(?:{pat_3})", re.DOTALL)
+        combined = re.compile(f"(?:{pat_5})|(?:{pat_4})|(?:{pat_3})", re.DOTALL)
 
         sub_p_open = (
             '</w:p><w:p><w:pPr>'
@@ -487,7 +493,7 @@ def convert_exam(
 
         def repl(m: re.Match) -> str:
             nonlocal q_num
-            tail = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+            tail = next((g for g in m.groups() if g is not None), "")
             tail_run = f'<w:r>{num_rpr}<w:t xml:space="preserve">{tail}</w:t></w:r>' if tail else ""
             out = f'{sub_p_open}<w:r>{num_rpr}<w:t>{q_num}.</w:t><w:tab/></w:r>{tail_run}'
             q_num += 1
@@ -503,6 +509,40 @@ def convert_exam(
         sub_count = q_num - (mc_count + 1)
         if total_q <= 0:
             total_q = mc_count + sub_count
+
+        # 3b. Renumber group stem paragraphs (after 題組 heading) with full-width digits １., ２., ３., ...
+        #     so they are visually distinct from the continuous sub-question numbers (21., 22., ...).
+        group_hdr_pos = txt.find("題組")
+        if group_hdr_pos != -1:
+            fw_digits = str.maketrans("0123456789", "０１２３４５６７８９")
+            stem_idx = 0
+            stem_rpr = '<w:rPr><w:rStyle w:val="char"/><w:rFonts w:ascii="標楷體" w:eastAsia="標楷體" w:hAnsi="標楷體"/></w:rPr>'
+
+            def _replace_stem_p(m: re.Match) -> str:
+                nonlocal stem_idx
+                p_open, ppr_inner = m.group(1), m.group(2)
+                if "<w:numPr>" not in ppr_inner:
+                    return m.group(0)
+                stem_idx += 1
+                fw_num = str(stem_idx).translate(fw_digits)
+                new_ppr = (
+                    '<w:pStyle w:val="1"/>'
+                    '<w:adjustRightInd w:val="0"/>'
+                    '<w:snapToGrid w:val="0"/>'
+                    '<w:tabs><w:tab w:val="left" w:pos="480"/></w:tabs>'
+                    '<w:spacing w:before="40" w:after="0"/>'
+                    '<w:ind w:left="480" w:hanging="400"/>'
+                    '<w:rPr><w:rStyle w:val="char"/></w:rPr>'
+                )
+                return f"{p_open}<w:pPr>{new_ppr}</w:pPr><w:r>{stem_rpr}<w:t>{fw_num}.</w:t><w:tab/></w:r>"
+
+            tail_part = re.sub(
+                r"(<w:p\b[^>]*>)<w:pPr>(.*?)</w:pPr>",
+                _replace_stem_p,
+                txt[group_hdr_pos:],
+                flags=re.DOTALL,
+            )
+            txt = txt[:group_hdr_pos] + tail_part
 
         # 4. Ensure titlePg is enabled (Page 1 has header; Page 2 has NO header)
         if "<w:titlePg/>" not in txt:
